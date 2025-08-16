@@ -17,6 +17,17 @@ logger = logging.getLogger(__name__)
 def main():
     """Main Streamlit application function"""
 
+    # Check for heavy dependencies and show deployment mode
+    try:
+        import sentence_transformers
+        import chromadb
+        FULL_MODE = True
+        deployment_mode = "Full Mode (with AI embeddings)"
+    except ImportError:
+        FULL_MODE = False
+        deployment_mode = "Lightweight Mode (keyword search)"
+        st.info(f"🚀 Running in {deployment_mode} - optimized for cloud deployment")
+
     # Import cache utilities from our improved modules
     try:
         from fact_checking.check import get_cache_stats as get_fact_check_cache_stats, clear_expired_cache as clear_fact_check_cache
@@ -24,7 +35,6 @@ def main():
         CACHE_MODULES_AVAILABLE = True
     except ImportError:
         CACHE_MODULES_AVAILABLE = False
-        st.warning("Cache monitoring not available - using original modules")
 
     # Page configuration
     st.set_page_config(

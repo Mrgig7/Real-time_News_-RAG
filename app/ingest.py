@@ -1,8 +1,23 @@
 from newspaper import Article
 import requests
-from sentence_transformers import SentenceTransformer
-import chromadb
 import time
+import json
+import os
+
+# Try to import heavy dependencies, fallback if not available
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    print("Warning: sentence-transformers not available, using fallback storage")
+
+try:
+    import chromadb
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    CHROMADB_AVAILABLE = False
+    print("Warning: chromadb not available, using fallback storage")
 
 NEWS_SOURCES = [
     "https://rss.cnn.com/rss/cnn_topstories.rss",
@@ -10,12 +25,41 @@ NEWS_SOURCES = [
     "http://feeds.bbci.co.uk/news/world/rss.xml"
 ]
 
+# Initialize components based on availability
+if SENTENCE_TRANSFORMERS_AVAILABLE:
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+else:
+    model = None
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
-chroma_client = chromadb.Client()
-collection = chroma_client.get_or_create_collection("news")
+if CHROMADB_AVAILABLE:
+    chroma_client = chromadb.Client()
+    collection = chroma_client.get_or_create_collection("news")
+else:
+    # Fallback: use simple file-based storage
+    collection = None
+    FALLBACK_STORAGE_FILE = "news_articles.json"
 
 import feedparser
+
+def load_fallback_storage():
+    """Load articles from fallback JSON storage"""
+    if os.path.exists(FALLBACK_STORAGE_FILE):
+        try:
+            with open(FALLBACK_STORAGE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading fallback storage: {e}")
+    return []
+
+def save_to_fallback_storage(articles):
+    """Save articles to fallback JSON storage"""
+    try:
+        with open(FALLBACK_STORAGE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(articles, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving to fallback storage: {e}")
+        return False
 
 def fetch_rss_articles():
     articles = []
@@ -83,9 +127,6 @@ def ingest_news(max_articles=5, progress_callback=None):
 
                 print(f"Processing article {idx + 1}: {art.get('title', 'No title')[:50]}...")
 
-                # Generate embedding
-                embedding = model.encode(art['text'])
-
                 # Detect misinformation
                 try:
                     misinfo_verdict, misinfo_explanation = detect_misinformation(art['text'])
@@ -94,19 +135,40 @@ def ingest_news(max_articles=5, progress_callback=None):
                     misinfo_verdict = "Unknown"
                     misinfo_explanation = "Analysis failed"
 
-                # Add to collection
-                collection.add(
-                    ids=[art['url']],
-                    documents=[art['text']],
-                    embeddings=[embedding.tolist()],
-                    metadatas=[{
-                        "title": art['title'],
-                        "url": art['url'],
-                        "source": art['source'],
-                        "misinfo_verdict": misinfo_verdict,
-                        "misinfo_explanation": misinfo_explanation
-                    }]
-                )
+                # Store article based on available storage
+                if CHROMADB_AVAILABLE and SENTENCE_TRANSFORMERS_AVAILABLE:
+                    # Use ChromaDB with embeddings
+                    embedding = model.encode(art['text'])
+                    collection.add(
+                        ids=[art['url']],
+                        documents=[art['text']],
+                        embeddings=[embedding.tolist()],
+                        metadatas=[{
+                            "title": art['title'],
+                            "url": art['url'],
+                            "source": art['source'],
+                            "misinfo_verdict": misinfo_verdict,
+                            "misinfo_explanation": misinfo_explanation
+                        }]
+                    )
+                else:
+                    # Use fallback storage
+                    existing_articles = load_fallback_storage()
+
+                    # Check if article already exists
+                    if not any(existing['url'] == art['url'] for existing in existing_articles):
+                        article_data = {
+                            "title": art['title'],
+                            "text": art['text'],
+                            "url": art['url'],
+                            "source": art['source'],
+                            "misinfo_verdict": misinfo_verdict,
+                            "misinfo_explanation": misinfo_explanation,
+                            "timestamp": time.time()
+                        }
+                        existing_articles.append(article_data)
+                        save_to_fallback_storage(existing_articles)
+
                 count += 1
                 print(f"Successfully processed article {idx + 1}")
 
