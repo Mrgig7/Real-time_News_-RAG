@@ -1,8 +1,16 @@
-from newspaper import Article
 import requests
 import time
 import json
 import os
+
+# Try to import newspaper3k, fallback if not available
+try:
+    from newspaper import Article
+    NEWSPAPER_AVAILABLE = True
+except ImportError as e:
+    NEWSPAPER_AVAILABLE = False
+    print(f"Warning: newspaper3k not available: {e}")
+    print("Using fallback article extraction")
 
 # Try to import heavy dependencies, fallback if not available
 try:
@@ -41,6 +49,52 @@ else:
 
 import feedparser
 
+def extract_article_fallback(url):
+    """Fallback article extraction using requests and BeautifulSoup"""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Try to extract title
+        title = None
+        for selector in ['h1', 'title', '.headline', '.title']:
+            title_elem = soup.select_one(selector)
+            if title_elem:
+                title = title_elem.get_text().strip()
+                break
+
+        # Try to extract main content
+        text = ""
+        for selector in ['article', '.content', '.article-body', '.post-content', 'main', '.entry-content']:
+            content_elem = soup.select_one(selector)
+            if content_elem:
+                text = content_elem.get_text().strip()
+                break
+
+        # If no specific content found, get all paragraphs
+        if not text:
+            paragraphs = soup.find_all('p')
+            text = ' '.join([p.get_text().strip() for p in paragraphs])
+
+        return {
+            'title': title or 'No title',
+            'text': text,
+            'success': len(text) > 100
+        }
+
+    except Exception as e:
+        print(f"Fallback extraction failed for {url}: {e}")
+        return {'title': 'No title', 'text': '', 'success': False}
+
 def load_fallback_storage():
     """Load articles from fallback JSON storage"""
     if os.path.exists(FALLBACK_STORAGE_FILE):
@@ -78,25 +132,46 @@ def fetch_rss_articles():
 
             for entry in feed.entries[:10]:  # Limit to 10 articles per feed
                 url = entry.link
-                try:
-                    article = Article(url)
-                    article.download()
-                    article.parse()
+                article_data = None
 
-                    if article.text and len(article.text.strip()) > 100:  # Ensure we have substantial content
-                        articles.append({
-                            "title": article.title or "No title",
-                            "text": article.text,
-                            "url": url,
-                            "source": feed.feed.title if hasattr(feed.feed, 'title') else "Unknown"
-                        })
-                        print(f"Successfully parsed: {article.title[:50]}...")
-                    else:
-                        print(f"Skipped article with insufficient content: {url}")
+                # Try newspaper3k first if available
+                if NEWSPAPER_AVAILABLE:
+                    try:
+                        article = Article(url)
+                        article.download()
+                        article.parse()
 
-                except Exception as e:
-                    print(f"Failed to parse article {url}: {e}")
-                    continue  # Skip articles that fail to download/parse
+                        if article.text and len(article.text.strip()) > 100:
+                            article_data = {
+                                "title": article.title or "No title",
+                                "text": article.text,
+                                "url": url,
+                                "source": feed.feed.title if hasattr(feed.feed, 'title') else "Unknown"
+                            }
+                            print(f"Successfully parsed with newspaper3k: {article.title[:50]}...")
+                    except Exception as e:
+                        print(f"Newspaper3k failed for {url}: {e}")
+
+                # If newspaper3k failed or unavailable, try fallback
+                if not article_data:
+                    try:
+                        fallback_result = extract_article_fallback(url)
+                        if fallback_result['success']:
+                            article_data = {
+                                "title": fallback_result['title'],
+                                "text": fallback_result['text'],
+                                "url": url,
+                                "source": feed.feed.title if hasattr(feed.feed, 'title') else "Unknown"
+                            }
+                            print(f"Successfully parsed with fallback: {fallback_result['title'][:50]}...")
+                    except Exception as e:
+                        print(f"Fallback extraction failed for {url}: {e}")
+
+                # Add article if we got content
+                if article_data:
+                    articles.append(article_data)
+                else:
+                    print(f"Skipped article with insufficient content: {url}")
 
         except Exception as e:
             print(f"Failed to fetch feed {feed_url}: {e}")
