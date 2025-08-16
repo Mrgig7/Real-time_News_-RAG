@@ -21,17 +21,40 @@ A Retrieval-Augmented Generation (RAG) system for real-time news ingestion, misi
 
 
 ## Setup
+
+### Local Development
 1. Clone the repo
 2. Install dependencies: `pip install -r requirements.txt`
-3. Run the app: `streamlit run app/main.py`
+3. Copy environment file: `cp .env.example .env`
+4. Add your API keys to `.env` file
+5. Run the app: `streamlit run streamlit_app.py`
+
+### API Keys Required
+- **Google Gemini API**: Get from [Google AI Studio](https://makersuite.google.com/app/apikey)
+- Add to `.env` file or Streamlit secrets
 
 ## Project Structure
 - `app/` – Streamlit UI
-- `ingestion/` – News ingestion scripts
 - `retrieval/` – Vector DB and retrieval logic
 - `fact_checking/` – Fact-checking modules
 - `scoring/` – Source credibility scoring
 - `utils/` – Shared utilities
+- `streamlit_app.py` – Deployment entry point
+- `.streamlit/` – Streamlit configuration
 
 ## Deployment
-Deployable on HuggingFace Spaces or Streamlit Cloud.
+
+### Streamlit Cloud (Recommended)
+1. Push code to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Connect your repository
+4. Set main file to `streamlit_app.py`
+5. Add API keys in app secrets
+6. Deploy!
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions.
+
+### Other Platforms
+- **Heroku**: Use `streamlit_app.py` as entry point
+- **Railway**: Compatible with current setup
+- **Render**: Works with Streamlit configuration

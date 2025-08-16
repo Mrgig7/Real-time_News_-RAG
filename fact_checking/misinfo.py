@@ -8,7 +8,8 @@ from typing import Tuple, List, Dict
 import logging
 import google.generativeai as genai
 
-load_dotenv()
+# Load environment variables with explicit path
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,11 +17,32 @@ logger = logging.getLogger(__name__)
 
 # Configure Gemini API
 try:
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    logger.info("Successfully configured Gemini API for misinformation detection")
+    # Try to get API key from environment or Streamlit secrets
+    api_key = os.getenv("GEMINI_API_KEY")
+    logger.info(f"API key from environment: {'Found' if api_key else 'Not found'}")
+
+    if not api_key:
+        try:
+            import streamlit as st
+            api_key = st.secrets.get("GEMINI_API_KEY")
+            logger.info(f"API key from Streamlit secrets: {'Found' if api_key else 'Not found'}")
+        except Exception as secrets_error:
+            logger.info(f"Could not access Streamlit secrets: {secrets_error}")
+
+    if api_key:
+        # Strip any whitespace and validate format
+        api_key = api_key.strip()
+        logger.info(f"Using API key (first 10 chars): {api_key[:10]}...")
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        logger.info("Successfully configured Gemini API for misinformation detection")
+    else:
+        logger.warning("No Gemini API key found - using fallback methods only")
+        model = None
 except Exception as e:
     logger.error(f"Error configuring Gemini API: {e}")
+    logger.error(f"Error type: {type(e).__name__}")
     model = None
 
 # Simple in-memory cache for misinformation detection results
@@ -274,6 +296,13 @@ RECOMMENDATIONS: [Suggest what readers should do - verify claims, check sources,
         
     except Exception as e:
         logger.error(f"Gemini API error: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+
+        # Check if it's an API key issue
+        if "API_KEY_INVALID" in str(e) or "API key not valid" in str(e):
+            logger.error("API key validation failed - this suggests the key is invalid or has restrictions")
+
         return ("API_ERROR", f"Gemini API error: {e}")
 
 def enhanced_misinfo_detection(article_text: str) -> Tuple[str, str]:

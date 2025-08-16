@@ -1,0 +1,8 @@
+# System packages required for deployment
+# This file is used by some cloud platforms to install system dependencies
+
+# Required for newspaper3k and web scraping
+libxml2-dev
+libxslt1-dev
+python3-dev
+build-essential
